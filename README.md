@@ -24,8 +24,33 @@ cd MacPassHTTP
 * Install [Carthage](https://github.com/Carthage/Carthage#installing-carthage)
 * Fetch and build dependencies for MacPassHTTP
 ```bash
-carthage bootstrap --platform macOS
+./build-deps.sh
 ```
+
+  > **Note:** Use `./build-deps.sh` instead of calling `carthage bootstrap` directly.
+  > The pinned dependencies (GCDWebServer 3.4.1, JSONModel, KeePassHTTPKit) date from
+  > ~2019 and need two workarounds on modern Xcode, both handled by the script:
+  >
+  > 1. **Deployment targets** (macOS 10.7 / iOS 8.0) are below what modern Xcode
+  >    supports, so linking fails with `SDK does not contain 'libarclite'` (Apple
+  >    removed `libarclite_*.a` in Xcode 14.3+). The script injects
+  >    `carthage-deployment-target.xcconfig` via `XCODE_XCCONFIG_FILE`, raising the
+  >    targets to the supported minimums and pinning `ARCHS = arm64`.
+  > 2. **Duplicate schemes:** GCDWebServer and JSONModel each ship several shared
+  >    schemes that build a framework with the *same* product name (e.g. both
+  >    `JSONModel` and `JSONModel-mac` produce `JSONModel.framework`). Carthage
+  >    builds them in parallel and they race to write the same path in
+  >    `Carthage/Build/Mac`, so you intermittently get an iOS framework
+  >    (`building for macOS, but linking in dylib built for iOS`) or an arm64-only
+  >    iOS slice where the macOS framework should be. The script splits the build
+  >    into `checkout → prune → build`, deleting the duplicate non-macOS schemes so
+  >    exactly one scheme per framework remains.
+  >
+  > The build is arm64-only (matches MacPass running natively on Apple Silicon).
+  > The script forwards arguments to `carthage`, e.g. `./build-deps.sh update`.
+  > Editing the dependency Xcode projects directly does not stick — `carthage`
+  > re-checks-out and overwrites them on every run, which is why the fixes live in
+  > the script and xcconfig.
 * Clone MacPass and fetch and build dependencies
 ```bash
 cd ..

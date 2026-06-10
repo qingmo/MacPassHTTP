@@ -1,0 +1,27 @@
+// Build overrides for `carthage bootstrap`, injected via XCODE_XCCONFIG_FILE.
+//
+// The pinned dependencies (GCDWebServer 3.4.1, JSONModel, KeePassHTTPKit) date
+// from ~2019 and declare deployment targets (macOS 10.7 / iOS 8.0) that modern
+// Xcode no longer supports. ARC code at those targets links against
+// libarclite_*.a, which Apple removed in Xcode 14.3+, so the link step fails:
+//   clang: error: SDK does not contain 'libarclite' ...; try increasing the
+//   minimum deployment target
+// Raising the deployment targets to the supported minimums fixes this.
+//
+// Architecture: build arm64 only (the native arch on Apple Silicon, where
+// MacPass also runs natively). The duplicate-scheme race that used to produce
+// the wrong framework in Carthage/Build/Mac is handled separately by
+// build-deps.sh (see its header); pinning a single arch here additionally keeps
+// the output deterministic and matches the host. If you need to run on Intel
+// Macs, build universal instead (e.g. carthage --use-xcframeworks or a
+// post-build lipo) rather than this single-arch pin.
+//
+// Usage: prefer ./build-deps.sh, which injects this file. To invoke carthage
+// directly:
+//   XCODE_XCCONFIG_FILE="$(pwd)/carthage-deployment-target.xcconfig" \
+//     carthage bootstrap --platform macOS
+
+MACOSX_DEPLOYMENT_TARGET = 10.13
+IPHONEOS_DEPLOYMENT_TARGET = 12.0
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = NO
