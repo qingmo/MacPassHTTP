@@ -12,6 +12,8 @@
 #   3. The plugin itself — xcodebuild, with the overrides explained below.
 #   4. Embed KeePassHTTPKit's transitive frameworks (GCDWebServers, JSONModel)
 #      into the installed plugin so it can load (see step 4 for why).
+#   5. Code sign the bundle (inside-out) so MacPass will load it — MacPass runs
+#      `codesign --verify` and refuses unsigned plugins (see step 5 for why).
 #
 # Requirements:
 #   - Xcode + carthage installed.
@@ -27,6 +29,10 @@ MACPASS="$(cd "$ROOT/.." && pwd)/MacPass"
 XCCONFIG="$ROOT/carthage-deployment-target.xcconfig"
 CONFIG="Release"
 PLUGIN="$HOME/Library/Application Support/MacPass/MacPassHTTP.mpplugin"
+# Signing identity for the final codesign pass. Defaults to ad-hoc ("-"), which
+# is enough for MacPass to load the plugin (it doesn't pin a signing anchor).
+# Export CODESIGN_IDENTITY="Developer ID Application: ..." for a distributable build.
+SIGN_ID="${CODESIGN_IDENTITY:--}"
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31merror: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -50,7 +56,7 @@ prune_non_macos_schemes() {
 }
 
 # ---------------------------------------------------------------------------
-log "1/4  Building MacPass dependencies ($MACPASS)"
+log "1/5  Building MacPass dependencies ($MACPASS)"
 # Submodule (DDHotKey) + Carthage deps. We build only what the plugin needs
 # (HNHUi, KeePassKit and its KissXML dep); TransformerKit fails to compile on a
 # modern SDK (removed Darwin 'xlocale' module) and the plugin doesn't need it.
@@ -61,11 +67,11 @@ XCODE_XCCONFIG_FILE="$XCCONFIG" carthage build HNHUi KeePassKit KissXML \
   --platform macOS --project-directory "$MACPASS"
 
 # ---------------------------------------------------------------------------
-log "2/4  Building MacPassHTTP dependencies"
+log "2/5  Building MacPassHTTP dependencies"
 "$ROOT/build-deps.sh"
 
 # ---------------------------------------------------------------------------
-log "3/4  Building the MacPassHTTP plugin ($CONFIG)"
+log "3/5  Building the MacPassHTTP plugin ($CONFIG)"
 # Command-line settings (highest precedence) override the project's stale values:
 #   MACOSX_DEPLOYMENT_TARGET=10.13  project sets 10.10, too low -> libarclite link error
 #   ARCHS=arm64                     match the arm64-only Carthage frameworks
@@ -92,7 +98,7 @@ BUILD_NUMBER="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 0)"
   || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLUGIN/Contents/Info.plist" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-log "4/4  Embedding transitive frameworks into the plugin"
+log "4/5  Embedding transitive frameworks into the plugin"
 # The project embeds only KeePassHTTPKit.framework, but it dynamically links
 # GCDWebServers and JSONModel (@rpath). KeePassHTTPKit declares an rpath of
 # @loader_path/Frameworks, so place its deps there; otherwise the plugin fails
@@ -104,6 +110,25 @@ for fw in GCDWebServers JSONModel; do
   rm -rf "$NESTED/$fw.framework"
   cp -R "$ROOT/Carthage/Build/Mac/$fw.framework" "$NESTED/"
 done
+
+# ---------------------------------------------------------------------------
+log "5/5  Code signing the plugin (id: $SIGN_ID)"
+# MacPass refuses to load plugins that fail `codesign --verify` (the UI shows
+# "Plugin is not properly signed"; see MPPluginHost.m -_isSignedPluginURL:).
+# xcodebuild leaves the bundle with only the arm64 linker's ad-hoc signature,
+# which has no sealed resources, and the steps above (Info.plist edit, framework
+# copy) would invalidate any real signature anyway — so we sign LAST, inside-out:
+# nested frameworks deepest-first, then the outer bundle, which seals everything
+# into Contents/_CodeSignature/CodeResources. MacPass doesn't pin a signing
+# anchor, so an ad-hoc signature is accepted.
+while IFS= read -r fw; do
+  codesign --force --sign "$SIGN_ID" "$fw" || die "failed to sign $fw"
+done < <(find "$PLUGIN/Contents/Frameworks" -name "*.framework" -depth)
+
+codesign --force --sign "$SIGN_ID" "$PLUGIN" || die "failed to sign $PLUGIN"
+
+# Verify exactly as MacPass does before it loads the plugin.
+codesign --verify --verbose "$PLUGIN" || die "codesign --verify failed for $PLUGIN"
 
 log "Done. Installed plugin:"
 echo "    $PLUGIN"
