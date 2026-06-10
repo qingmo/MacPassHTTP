@@ -88,6 +88,9 @@
                             <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="1b8-d7-7dw" secondAttribute="trailing" constant="20" symbolic="YES" id="yfk-sZ-Xye"/>
                         </constraints>
                     </view>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="168" id="ADv-hg-ht1"/>
+                    </constraints>
                 </box>
                 <box borderType="line" title="Interface" translatesAutoresizingMaskIntoConstraints="NO" id="91g-f4-0PT">
                     <rect key="frame" x="17" y="293" width="248" height="90"/>
@@ -120,6 +123,9 @@
                             <constraint firstItem="7X4-aF-1sY" firstAttribute="top" secondItem="Ph9-8D-46q" secondAttribute="bottom" constant="6" symbolic="YES" id="s0h-9r-tOI"/>
                         </constraints>
                     </view>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="90" id="IFc-hg-ht1"/>
+                    </constraints>
                 </box>
                 <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="BOb-dd-2DX">
                     <rect key="frame" x="20" y="78" width="242" height="25"/>
