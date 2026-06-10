@@ -16,6 +16,29 @@ Download the latest release from the [Releases page](https://github.com/MacPass/
 
 ### Building from source
 
+The dependencies and the MacPass plugin SDK predate current Xcode, so a plain
+`carthage bootstrap` + `xcodebuild` no longer works out of the box. Two helper
+scripts encapsulate the required workarounds (explained in the notes below):
+
+* `build.sh` — **full build**: builds MacPass's dependencies, MacPassHTTP's
+  dependencies, then compiles and installs the plugin.
+* `build-deps.sh` — just MacPassHTTP's own Carthage dependencies.
+
+#### Quick build (recommended)
+
+```bash
+git clone https://github.com/MacPass/MacPassHTTP
+git clone https://github.com/mstarke/MacPass          # sibling checkout, see layout below
+cd MacPassHTTP
+./build.sh
+```
+
+This installs the plugin to `~/Library/Application Support/MacPass/MacPassHTTP.mpplugin`
+(arm64; restart MacPass to load it). The build is arm64-only, matching MacPass
+running natively on Apple Silicon.
+
+#### Manual steps
+
 * Clone the repository
 ```bash
 git clone https://github.com/MacPass/MacPassHTTP
@@ -51,15 +74,23 @@ cd MacPassHTTP
   > Editing the dependency Xcode projects directly does not stick — `carthage`
   > re-checks-out and overwrites them on every run, which is why the fixes live in
   > the script and xcconfig.
-* Clone MacPass and fetch and build dependencies
+* Clone MacPass (as a sibling directory) and build the dependencies the plugin
+  needs. On modern Xcode the non-macOS schemes must be pruned first, and
+  TransformerKit fails to compile (removed Darwin `xlocale` module) but isn't
+  needed by the plugin, so build only the required dependencies:
 ```bash
 cd ..
 git clone https://github.com/mstarke/MacPass
 cd MacPass
-git checkout 0.7.4
 git submodule update --init --recursive
-carthage bootstrap --platform macOS
+carthage checkout
+# remove iOS/tvOS/watchOS schemes so Carthage doesn't race same-named frameworks
+find Carthage/Checkouts -path "*/xcshareddata/xcschemes/*.xcscheme" \
+  \( -iname "*iOS*" -o -iname "*tvOS*" -o -iname "*watchOS*" \) -delete
+XCODE_XCCONFIG_FILE="$(pwd)/../MacPassHTTP/carthage-deployment-target.xcconfig" \
+  carthage build HNHUi KeePassKit KissXML --platform macOS
 ```
+  (`build.sh` does all of the above for you.)
 
 * If your folder structure isn't like the following, you need to adjust the ````HEADER_SEARCH_PATHS```` to point to the MacPass folder
 ````
@@ -68,15 +99,25 @@ carthage bootstrap --platform macOS
    └─ MacPassHTTP
 ````
 
-* Change back to the MacPassHTTP folder, compile and install
+* Change back to the MacPassHTTP folder, compile and install. The plugin's own
+  deployment target (10.10) is too low for modern Xcode, it must build arm64 to
+  match the dependencies, and it needs MacPass's built frameworks on the
+  framework search path:
 ```bash
-cd ..
-cd MacPassHTTP
-xcodebuild
+cd ../MacPassHTTP
+XCODE_XCCONFIG_FILE="$(pwd)/carthage-deployment-target.xcconfig" xcodebuild \
+  -scheme MacPassHTTP -configuration Release \
+  MACOSX_DEPLOYMENT_TARGET=10.13 ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+  "FRAMEWORK_SEARCH_PATHS=\$(inherited) \$(PROJECT_DIR)/../MacPass/Carthage/Build/Mac" \
+  CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES
 ```
+  After the build, KeePassHTTPKit's own dependencies (GCDWebServers, JSONModel)
+  must be embedded into the installed plugin so it can load — `build.sh` does
+  this automatically. Again, prefer `./build.sh` over running these by hand.
 
-The Plugin is moved to the plugin folder of MacPass automacially.
+The plugin is installed automatically to MacPass's plugin folder:
 ````~/Library/Application Support/MacPass/MacPassHTTP.mpplugin````
+Restart MacPass to load it.
 
 ## License
 
